@@ -165,3 +165,114 @@ The suggested way to inspect these logs is via the Open OnDemand web interface:
 
 ---
 Students should only edit README.md below this ligne.
+
+
+
+# Rob6323Go2 Environment
+
+This project implements a custom reinforcement learning (RL) environment for quadruped locomotion, based on the IsaacLab framework. The main logic is contained in two files:
+
+- `rob6323_go2_env.py`: The environment class and reward logic
+- `rob6323_go2_env_cfg.py`: The configuration for simulation, robot, and reward shaping
+
+## Environment Implementation (`rob6323_go2_env.py`)
+
+The `Rob6323Go2Env` class extends `DirectRLEnv` and provides a highly customized simulation for the Unitree Go2 robot. Key features include:
+
+- **Action and Command Handling**: Actions are interpreted as joint position deviations, and commands specify target linear and angular velocities.
+- **PD Control**: Implements explicit PD control for joint torques, with friction effects (viscous and stiction) added for realism. Gains and limits are configurable.
+- **Reward Shaping**: The reward function is carefully designed to encourage stable, natural locomotion. It includes:
+    - Linear and angular velocity tracking (exponential penalties)
+    - Action rate penalization (first and second derivatives)
+    - Raibert heuristic for gait timing and contact scheduling
+    - Penalties for non-flat orientation, vertical movement, excessive joint velocities, and body roll/pitch
+    - Foot clearance and contact force shaping for smooth stepping
+- **Gait and Contact Scheduling**: Uses a Raibert-inspired heuristic to generate periodic gait patterns, with smooth transitions between stance and swing phases for each foot.
+- **Observation and Reset Logic**: Observations include robot state and gait phase information. The reset logic randomizes initial conditions and friction parameters for robustness.
+- **Debug Visualization**: Optional visualization of velocity commands and robot state for easier debugging and analysis.
+
+## Configuration (`rob6323_go2_env_cfg.py`)
+
+The configuration file defines all simulation, robot, and reward parameters:
+
+- **Simulation Settings**: Time step, physics material properties, and terrain configuration.
+- **Robot Configuration**: Uses the Unitree Go2 model, with actuators grouped for the legs. Explicitly disables implicit P/D gains in favor of the environment's PD controller.
+- **PD Gains and Limits**: Proportional and derivative gains, as well as torque limits, are set here for easy tuning.
+- **Reward Scales**: All reward and penalty terms are configurable, allowing for rapid experimentation with different shaping strategies.
+- **Gait and Foot Clearance**: Parameters for desired foot clearance and contact force shaping are included to promote natural stepping.
+
+## Design Choices
+
+- **Explicit PD Control**: By disabling implicit gains and implementing explicit PD control, the environment allows for more direct and interpretable tuning of robot behavior.
+- **Reward Shaping**: The reward function is modular and extensible, supporting both basic tracking and advanced gait shaping (Raibert heuristic, foot clearance, contact forces).
+- **Robustness**: Randomization of friction and initial conditions during resets helps the policy generalize to a variety of scenarios.
+- **Extensibility**: The environment and config are structured for easy modification, supporting new reward terms, robot models, or terrain types.
+
+## Implementing additions to the Baseline
+
+### Part 1: Adding Action Rate Penalties
+Smooth motion requires penalizing jerky actions. To do this, we need to track the history of actions taken by the policy.
+
+We added the variable action_rate_reward_scale  to the config file, setting it to =-0.1
+In the env file, we added to the __init__() method when creating the _episode_sums dictionary the keys rew_action_rate and raibert_heuristic.
+When an environment resets, we must clear this history so the new episode starts fresh, so in the _reset_idx() we set self.last_actions[env_ids] = 0.
+
+We updated the _get_rewards(): We calculate the "rate" (first derivative) and "acceleration" (second derivative) of the actions to penalize high-frequency oscillations.
+
+### Part 2: Implementing a Low-Level PD Controller
+Instead of relying on the physics engine's implicit PD controller, we will implement our own torque-level control. This gives us full control over the gains and limits.
+
+
+In the config file, we disabled the built-in PD controller in the config and defined our custom gains.
+In the env __init__(): we load the Kp, Kd gains into tensors for efficient computation.
+We calculate the torques manually using the standard PD formula
+
+### Part 3: Early Stopping (Min Base Height)
+To speed up training, we should terminate episodes early if the robot falls down or collapses. It will also help learning that the base should stay elevated.
+
+In the config file, we Define the threshold for termination: base_height_min  = 0.2
+In the Env file, in _get_dones() we check the robot's base height (z-coordinate) against the threshold.
+
+### Part 4: Raibert Heuristic (Gait Shaping)
+The Raibert Heuristic is a classic control strategy that places feet to stabilize velocity. We will use it as a "teacher" reward to encourage the policy to learn proper stepping. 
+
+In the config file we define the reward scales and increase observation space to include clock inputs (4 phases).
+
+In the env file we track the "phase" of the gait and identify feet bodies.
+
+We define Foot Indices Helper We need to know which body indices correspond to the feet to get their positions.
+
+We implement Gait Logic.
+We implement a function that advances the gait clock and calculates where the feet should be based on the command velocity. We also need to reset the gait index on episode reset.
+
+We implement Raibert Reward: We calculate the error between where the foot IS and where the Raibert Heuristic says it SHOULD be.
+
+Finally, we integrate into Observations and Rewards. We expose the clock inputs to the policy and add the reward term.
+
+
+### Part 5: Refining the Reward Function
+
+To achieve stable and natural-looking locomotion, we need to shape the robot's behavior further. We added penalties for:
+Non-flat body orientation (projected gravity).
+Vertical body movement (bouncing).
+Excessive joint velocities.
+Body rolling and pitching (angular velocity).
+
+In out config file, we added the following reward scales:
+orient_reward_scale = -5.0
+lin_vel_z_reward_scale = -0.02
+dof_vel_reward_scale = -0.0001
+ang_vel_xy_reward_scale = -0.001
+
+Finally, we implemented the logic to calculate these rewards inside _get_rewards
+
+
+### Part 6: Advanced Foot Interaction
+
+We added critical rewards for legged locomotion: Foot Clearance (lifting feet during swing) and Contact Forces (grounding feet during stance).
+In the config file we added the following scales:
+feet_clearance_reward_scale = -30.0
+tracking_contacts_shaped_force_reward_scale = 4.0
+
+
+

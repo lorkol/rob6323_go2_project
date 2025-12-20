@@ -89,6 +89,12 @@ class Rob6323Go2Env(DirectRLEnv):
 
         # add handle for debug visualization (this is set to a valid handle inside set_debug_vis)
         self.set_debug_vis(self.cfg.debug_vis)
+        
+        num_envs = self.num_envs
+        num_joints = self.robot.data.joint_vel.shape[1]
+        
+        self.F_s = 2.5 * torch.rand((num_envs, num_joints), device=self.device)
+        self.myu_v = 0.3 * torch.rand((num_envs, num_joints), device=self.device)
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot_cfg)
@@ -115,7 +121,15 @@ class Rob6323Go2Env(DirectRLEnv):
 
     def _apply_action(self) -> None:
         # Compute PD torques
-        torques = torch.clip((self.Kp * (self.desired_joint_pos - self.robot.data.joint_pos)- self.Kd * self.robot.data.joint_vel), -self.torque_limits, self.torque_limits,)
+        desired_torque = self.Kp * (self.desired_joint_pos - self.robot.data.joint_pos) - self.Kd * self.robot.data.joint_vel
+        
+        #Add friction effect
+        tau_viscous = self.myu_v * self.robot.data.joint_vel
+        tau_stiction = self.F_s * torch.tanh(self.robot.data.joint_vel/0.1)
+        tau_friction = tau_viscous + tau_stiction
+        torques = desired_torque - tau_friction
+        
+        torques = torch.clip(torques, -self.torque_limits, self.torque_limits,)
 
         # Apply torques to the robot
         self.robot.set_joint_effort_target(torques)
@@ -194,8 +208,6 @@ class Rob6323Go2Env(DirectRLEnv):
         rew_tracking_contacts_shaped_force = torch.zeros(self.num_envs, device=self.device)
         for i in range(4):
             rew_tracking_contacts_shaped_force += - (1 - desired_contact[:, i]) * (1 - torch.exp(-1 * foot_forces[:, i] ** 2 / 100.))
-
-        
         
         rewards = {
             "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale,
@@ -264,6 +276,13 @@ class Rob6323Go2Env(DirectRLEnv):
         self.last_actions[env_ids] = 0.
         
         self.gait_indices[env_ids] = 0
+
+        # Get number of joints
+        num_joints = self.robot.data.joint_vel.shape[1]
+
+        # Re-sample ONLY for the reset environments
+        self.F_s[env_ids] = 2.5 * torch.rand((len(env_ids), num_joints), device=self.device)
+        self.myu_v[env_ids] = 0.3 * torch.rand((len(env_ids), num_joints), device=self.device)
 
 
     def _set_debug_vis_impl(self, debug_vis: bool):

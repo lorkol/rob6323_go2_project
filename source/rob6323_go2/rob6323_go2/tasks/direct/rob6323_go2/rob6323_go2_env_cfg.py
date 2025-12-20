@@ -100,6 +100,17 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     Kd = 0.5   # Derivative gain
     torque_limits = 100.0  # Max torque
     
+    # Update robot_cfg
+    robot_cfg: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    # "base_legs" is an arbitrary key we use to group these actuators
+    robot_cfg.actuators["base_legs"] = ImplicitActuatorCfg(
+        joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
+        effort_limit=23.5,
+        velocity_limit=30.0,
+        stiffness=0.0,  # CRITICAL: Set to 0 to disable implicit P-gain
+        damping=0.0,    # CRITICAL: Set to 0 to disable implicit D-gain
+        )
+    
     base_height_min = 0.20  # Terminate if base is lower than 20cm
 
 
@@ -118,10 +129,10 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     
     orient_reward_scale = -5.0 # Penalty for non-flat body orientation
     lin_vel_z_reward_scale = -0.02 # Penalty for vertical body movement
-    dof_vel_reward_scale = -0.0001 # Penalty for excessive joint velocities ######
+    dof_vel_reward_scale = -0.001 # Penalty for excessive joint velocities ###### # NOTE: Was -0.0001 before
     ang_vel_xy_reward_scale = -0.001 # Penalty for body rolling and pitching
     
     # Step 6
     foot_clearance_reward_scale = -10.0
-    desired_foot_clearance = 0.08  # Desired foot clearance height in meters
+    desired_foot_clearance = 0.2  # Desired foot clearance height in meters # NOTE: Was 0.08 before
     tracking_contacts_shaped_force_reward_scale = 0.01 # 
