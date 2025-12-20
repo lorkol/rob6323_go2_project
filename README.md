@@ -276,3 +276,29 @@ tracking_contacts_shaped_force_reward_scale = 4.0
 
 
 
+## Extra Credits 1: Friction
+To transfer learned policies to real robot, it is necessary to create a more realistic simulation, especially add actuator friction
+dynamics. In this task, we needed to add a simple actuator friction/viscous model in our
+environment code and randomize parameters per episode This friction model combines static and viscous friction and should be subtracted from the torques
+computed by our low-level PD controller before they are sent to the robot.
+
+τ_stiction = Fs · tanh(q˙/0.1)
+τ_viscous = µv · q˙
+τ_friction = τ_stiction + τviscous
+τ_PD ← τ_PD − τfriction
+Where:
+τ_PD is the output torque from the PD controller
+
+q˙ is the joint velocity
+
+Fs is the stiction coefficient
+
+µv is the viscous coefficient.
+
+µv ∼ U(0.0, 0.3), Fs ∼ U(0.0, 2.5)
+
+We also added this randomization logic to our episode reset
+
+This forces the policy to overcome internal joint resistance, significantly narrowing the sim-to-real gap. This robustness is crucial for realworld deployment
+
+Every time before sending a command of torque to the actuator, the model add this random friction to the signal
