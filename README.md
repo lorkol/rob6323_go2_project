@@ -302,3 +302,95 @@ We also added this randomization logic to our episode reset
 This forces the policy to overcome internal joint resistance, significantly narrowing the sim-to-real gap. This robustness is crucial for realworld deployment
 
 Every time before sending a command of torque to the actuator, the model add this random friction to the signal
+
+## Extra Credits 2: Randomly Generated Rough Terrain Walking
+
+A randomly generated rough terrain can be generated in Isaac Lab in lieu of the flat plane. To train g2o on rough terrain we first need to add a terrain generator in `rob6323_go2_env_cfg.py`. Replace this:
+
+```python
+terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+```
+With the following custom terrain generator:
+
+```python
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=TerrainGeneratorCfg(
+            size=(200.0, 200.0), #(8.0, 8.0)
+            border_width=0.0, #20.0
+            num_rows=1, #10
+            num_cols=1, #20
+            horizontal_scale=0.1,
+            vertical_scale=0.005,
+            slope_threshold=0.75,
+            use_cache=False,
+            sub_terrains={
+                "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+                    proportion=1.0,  # 100% random rough terrain (continuous, simple)
+                    noise_range=(0.01, 0.07), 
+                    noise_step=0.01,
+                    border_width=0.25,
+                ),
+            },
+        ),
+        max_init_terrain_level=5,  # Start with easier terrains
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+        debug_vis=False,
+    )
+```
+
+Additionally, we need to add a height laser scan to use terrain height as observations during training. We add 187 to the observation space for the laser rays and as well as the RayCasterCfg modules from Isaac Lab:
+
+```python
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns #Add RayCasterCfg here
+
+...
+
+observation_space = 235 # 48 + 187 rays from the heigth laser scan
+
+...
+
+height_scanner = RayCasterCfg(
+        prim_path="/World/envs/env_.*/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+
+```
+
+Finally, in order to get a proper visualization of the training results we need to spawn the robots randomly accross the whole terrain instead of in the center of the terrain. We just add the following to the `_reset_idx()` function in `rob6323_go2_env.py`:
+
+```python
+# === ADDED: Random XY offsets to spread robots randomly across entire terrain tile ===
+terrain_size = self.cfg.terrain.terrain_generator.size[0]
+margin = 2.0  # Leave 2m margin on each side to avoid edges
+# Random positions across entire tile
+# Sample from -terrain_size/2 + margin to terrain_size/2 - margin
+min_pos = -terrain_size / 2 + margin
+max_pos = terrain_size / 2 - margin
+xy_offset = torch.zeros(len(env_ids), 2, device=self.device).uniform_(min_pos, max_pos)
+default_root_state[:, :2] += xy_offset
+```
