@@ -129,10 +129,10 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     
     orient_reward_scale = -5.0 # Penalty for non-flat body orientation
     lin_vel_z_reward_scale = -0.02 # Penalty for vertical body movement
-    dof_vel_reward_scale = -0.001 # Penalty for excessive joint velocities ###### # NOTE: Was -0.0001 before
+    dof_vel_reward_scale = -0.0001 # Penalty for excessive joint velocities ###### # NOTE: Was -0.0001 before
     ang_vel_xy_reward_scale = -0.001 # Penalty for body rolling and pitching
     
     # Step 6
     foot_clearance_reward_scale = -10.0
-    desired_foot_clearance = 0.2  # Desired foot clearance height in meters # NOTE: Was 0.08 before
+    desired_foot_clearance = 0.08  # Desired foot clearance height in meters # NOTE: Was 0.08 before
     tracking_contacts_shaped_force_reward_scale = 0.01 # 
